@@ -22,11 +22,21 @@ function containsRtl(text: string): boolean {
 //   3. Unpatching strips the block and restores the file cleanly.
 //   4. If Claude Code updates, our activate() re-applies on next launch.
 
-const PATCH_MARKER_START = '/* === claude-code-rtl patch v1 START === */';
-const PATCH_MARKER_END = '/* === claude-code-rtl patch v1 END === */';
+// Bump the version suffix whenever the CSS body changes so old blocks get
+// cleanly replaced on upgrade.
+const PATCH_MARKER_START = '/* === claude-code-rtl patch v2 START === */';
+const PATCH_MARKER_END = '/* === claude-code-rtl patch v2 END === */';
+const LEGACY_MARKERS: Array<[string, string]> = [
+  ['/* === claude-code-rtl patch v1 START === */', '/* === claude-code-rtl patch v1 END === */'],
+];
 
 const PATCH_CSS = `
-/* Auto-detect direction per paragraph. Arabic blocks flip to RTL, English stays LTR. */
+/*
+ * Base direction = RTL so Arabic paragraphs anchor to the right edge.
+ * unicode-bidi: plaintext lets each paragraph auto-detect its own direction
+ * from the first strong character \u2014 so English paragraphs still flow LTR
+ * (they just sit right-aligned inside the RTL block, which is fine).
+ */
 .rendered-markdown,
 .rendered-markdown p,
 .rendered-markdown li,
@@ -39,10 +49,18 @@ const PATCH_CSS = `
 .rendered-markdown h4,
 .rendered-markdown h5,
 .rendered-markdown h6,
-[data-testid="assistant-message"],
-[data-testid="user-message"] {
+[data-testid="assistant-message"] .rendered-markdown,
+[data-testid="user-message"] .rendered-markdown {
+  direction: rtl !important;
   unicode-bidi: plaintext !important;
   text-align: start !important;
+}
+
+/* Lists: keep the bullet/number on the right when content is Arabic. */
+.rendered-markdown ul,
+.rendered-markdown ol {
+  padding-right: 1.5em !important;
+  padding-left: 0 !important;
 }
 
 /* Keep inline & fenced code LTR even inside an RTL paragraph. */
@@ -52,10 +70,10 @@ const PATCH_CSS = `
 .rendered-markdown :not(pre) > code {
   unicode-bidi: embed !important;
   direction: ltr !important;
-  text-align: start !important;
+  text-align: left !important;
 }
 
-/* The composer textarea / contenteditable input \u2014 auto-direct as user types. */
+/* The composer input \u2014 let it auto-detect direction as the user types. */
 textarea,
 [contenteditable="true"] {
   unicode-bidi: plaintext;
@@ -73,12 +91,20 @@ function readCss(cssPath: string): string {
   return fs.readFileSync(cssPath, 'utf8');
 }
 
-function stripExistingPatch(css: string): string {
-  const startIdx = css.indexOf(PATCH_MARKER_START);
+function stripBlockBetween(css: string, start: string, end: string): string {
+  const startIdx = css.indexOf(start);
   if (startIdx < 0) return css;
-  const endIdx = css.indexOf(PATCH_MARKER_END, startIdx);
+  const endIdx = css.indexOf(end, startIdx);
   if (endIdx < 0) return css;
-  return (css.slice(0, startIdx) + css.slice(endIdx + PATCH_MARKER_END.length)).replace(/\n{3,}$/, '\n');
+  return (css.slice(0, startIdx) + css.slice(endIdx + end.length)).replace(/\n{3,}$/, '\n');
+}
+
+function stripExistingPatch(css: string): string {
+  let out = stripBlockBetween(css, PATCH_MARKER_START, PATCH_MARKER_END);
+  for (const [s, e] of LEGACY_MARKERS) {
+    out = stripBlockBetween(out, s, e);
+  }
+  return out;
 }
 
 function applyClaudeCodePatch(): { ok: boolean; alreadyPatched: boolean; reason?: string; version?: string } {

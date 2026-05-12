@@ -2,7 +2,7 @@
   "name": "claude-code-rtl",
   "displayName": "Claude Code RTL",
   "description": "Read Claude Code (and any LTR webview) Arabic / Hebrew / Persian replies correctly — a clean RTL mirror panel with auto direction, theme-aware styling, and one-click text utilities.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "mhe8mah",
   "license": "MIT",
   "icon": "media/icon.png",
