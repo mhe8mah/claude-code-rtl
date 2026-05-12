@@ -24,19 +24,32 @@ function containsRtl(text: string): boolean {
 
 // Bump the version suffix whenever the CSS body changes so old blocks get
 // cleanly replaced on upgrade.
-const PATCH_MARKER_START = '/* === claude-code-rtl patch v2 START === */';
-const PATCH_MARKER_END = '/* === claude-code-rtl patch v2 END === */';
+const PATCH_MARKER_START = '/* === claude-code-rtl patch v3 START === */';
+const PATCH_MARKER_END = '/* === claude-code-rtl patch v3 END === */';
 const LEGACY_MARKERS: Array<[string, string]> = [
   ['/* === claude-code-rtl patch v1 START === */', '/* === claude-code-rtl patch v1 END === */'],
+  ['/* === claude-code-rtl patch v2 START === */', '/* === claude-code-rtl patch v2 END === */'],
 ];
 
 const PATCH_CSS = `
-/*
- * Base direction = RTL so Arabic paragraphs anchor to the right edge.
- * unicode-bidi: plaintext lets each paragraph auto-detect its own direction
- * from the first strong character \u2014 so English paragraphs still flow LTR
- * (they just sit right-aligned inside the RTL block, which is fine).
- */
+/* The visible message bubble is a flex column with align-items:flex-start and
+ * padding-left:30px (for the avatar dot). We flip the container to RTL so
+ * flex-start resolves to the right edge, and move the dot to the right. */
+[data-testid="assistant-message"],
+[data-testid="user-message"] {
+  direction: rtl !important;
+  text-align: start !important;
+  padding-left: 0 !important;
+  padding-right: 30px !important;
+}
+
+[data-testid="assistant-message"]::before,
+[data-testid="user-message"]::before {
+  left: auto !important;
+  right: 9px !important;
+}
+
+/* Per-paragraph auto-direction inside the markdown body. */
 .rendered-markdown,
 .rendered-markdown p,
 .rendered-markdown li,
@@ -48,22 +61,20 @@ const PATCH_CSS = `
 .rendered-markdown h3,
 .rendered-markdown h4,
 .rendered-markdown h5,
-.rendered-markdown h6,
-[data-testid="assistant-message"] .rendered-markdown,
-[data-testid="user-message"] .rendered-markdown {
+.rendered-markdown h6 {
   direction: rtl !important;
   unicode-bidi: plaintext !important;
   text-align: start !important;
 }
 
-/* Lists: keep the bullet/number on the right when content is Arabic. */
+/* Lists: bullets/numbers on the right. */
 .rendered-markdown ul,
 .rendered-markdown ol {
   padding-right: 1.5em !important;
   padding-left: 0 !important;
 }
 
-/* Keep inline & fenced code LTR even inside an RTL paragraph. */
+/* Keep code blocks LTR even inside RTL paragraphs. */
 .rendered-markdown pre,
 .rendered-markdown pre *,
 .rendered-markdown code,
@@ -73,7 +84,13 @@ const PATCH_CSS = `
   text-align: left !important;
 }
 
-/* The composer input \u2014 let it auto-detect direction as the user types. */
+/* Some Claude Code builds explicitly left-align user messages \u2014 undo it. */
+[class*="userMessageContainer"] {
+  text-align: start !important;
+  margin-left: auto !important;
+  margin-right: 0 !important;
+}
+
 textarea,
 [contenteditable="true"] {
   unicode-bidi: plaintext;
