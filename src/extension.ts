@@ -175,17 +175,13 @@ async function ensureClaudeCodePatched(context: vscode.ExtensionContext, opts: {
     return;
   }
 
-  const versionKey = `claudeCodeRtl.lastPatchedVersion.${result.version ?? 'unknown'}`;
-  const previouslyNotified = context.globalState.get<boolean>(versionKey, false);
-
+  // Whenever the CSS content actually changed (i.e. we wrote a new patch block),
+  // offer to reload \u2014 the running webview is still showing the previous CSS.
   if (!result.alreadyPatched) {
-    if (!previouslyNotified) {
-      await offerReload(
-        `Claude Code RTL: RTL styles injected into Claude Code v${result.version ?? '?'}. ` +
-          `Reload the window so Arabic replies render right-to-left.`
-      );
-      await context.globalState.update(versionKey, true);
-    }
+    await offerReload(
+      `Claude Code RTL: RTL styles injected into Claude Code v${result.version ?? '?'}. ` +
+        `Reload the window so Arabic replies render right-to-left.`
+    );
   }
 }
 
