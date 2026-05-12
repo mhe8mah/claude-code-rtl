@@ -2,7 +2,7 @@
   "name": "claude-code-rtl",
   "displayName": "Claude Code RTL",
   "description": "Read Claude Code (and any LTR webview) Arabic / Hebrew / Persian replies correctly — a clean RTL mirror panel with auto direction, theme-aware styling, and one-click text utilities.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "mhe8mah",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -63,6 +63,16 @@
         "command": "claudeCodeRtl.clearMirror",
         "title": "Claude Code RTL: Clear Mirror Panel",
         "category": "Claude Code RTL"
+      },
+      {
+        "command": "claudeCodeRtl.patchClaudeCode",
+        "title": "Claude Code RTL: Enable In-Chat RTL (patch Claude Code)",
+        "category": "Claude Code RTL"
+      },
+      {
+        "command": "claudeCodeRtl.unpatchClaudeCode",
+        "title": "Claude Code RTL: Disable In-Chat RTL (remove patch)",
+        "category": "Claude Code RTL"
       }
     ],
     "menus": {
@@ -105,6 +115,11 @@
           "type": "boolean",
           "default": false,
           "description": "Open the RTL Mirror panel automatically when VS Code starts."
+        },
+        "claudeCodeRtl.patchClaudeCode": {
+          "type": "boolean",
+          "default": true,
+          "description": "Inject right-to-left CSS into the installed Claude Code extension so its chat panel renders Arabic / Hebrew / Persian replies natively. The patch is scoped to a marked block and can be removed at any time via the 'Disable In-Chat RTL' command."
         }
       }
     }

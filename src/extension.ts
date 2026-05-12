@@ -1,9 +1,166 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const RTL_REGEX = /[\u0590-\u05FF\u0600-\u06FF\u0700-\u074F\u0750-\u077F\u0780-\u07BF\u07C0-\u07FF\u0800-\u083F\u0840-\u085F\u0860-\u086F\u08A0-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFC]/;
 
 function containsRtl(text: string): boolean {
   return RTL_REGEX.test(text);
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code in-place CSS patcher
+// ---------------------------------------------------------------------------
+// Appends a marked CSS block to the Claude Code extension's webview/index.css
+// so its chat panel renders Arabic/Hebrew/Persian replies right-to-left without
+// the user having to copy text into a side panel.
+//
+// Safe by design:
+//   1. The original CSS is backed up to `index.css.orig` on first patch.
+//   2. The patch lives between two unique marker comments \u2014 re-running just
+//      replaces that block, never duplicates it.
+//   3. Unpatching strips the block and restores the file cleanly.
+//   4. If Claude Code updates, our activate() re-applies on next launch.
+
+const PATCH_MARKER_START = '/* === claude-code-rtl patch v1 START === */';
+const PATCH_MARKER_END = '/* === claude-code-rtl patch v1 END === */';
+
+const PATCH_CSS = `
+/* Auto-detect direction per paragraph. Arabic blocks flip to RTL, English stays LTR. */
+.rendered-markdown,
+.rendered-markdown p,
+.rendered-markdown li,
+.rendered-markdown ul,
+.rendered-markdown ol,
+.rendered-markdown blockquote,
+.rendered-markdown h1,
+.rendered-markdown h2,
+.rendered-markdown h3,
+.rendered-markdown h4,
+.rendered-markdown h5,
+.rendered-markdown h6,
+[data-testid="assistant-message"],
+[data-testid="user-message"] {
+  unicode-bidi: plaintext !important;
+  text-align: start !important;
+}
+
+/* Keep inline & fenced code LTR even inside an RTL paragraph. */
+.rendered-markdown pre,
+.rendered-markdown pre *,
+.rendered-markdown code,
+.rendered-markdown :not(pre) > code {
+  unicode-bidi: embed !important;
+  direction: ltr !important;
+  text-align: start !important;
+}
+
+/* The composer textarea / contenteditable input \u2014 auto-direct as user types. */
+textarea,
+[contenteditable="true"] {
+  unicode-bidi: plaintext;
+}
+`;
+
+function findClaudeCodeCssPath(): string | undefined {
+  const ext = vscode.extensions.getExtension('anthropic.claude-code');
+  if (!ext) return undefined;
+  const cssPath = path.join(ext.extensionPath, 'webview', 'index.css');
+  return fs.existsSync(cssPath) ? cssPath : undefined;
+}
+
+function readCss(cssPath: string): string {
+  return fs.readFileSync(cssPath, 'utf8');
+}
+
+function stripExistingPatch(css: string): string {
+  const startIdx = css.indexOf(PATCH_MARKER_START);
+  if (startIdx < 0) return css;
+  const endIdx = css.indexOf(PATCH_MARKER_END, startIdx);
+  if (endIdx < 0) return css;
+  return (css.slice(0, startIdx) + css.slice(endIdx + PATCH_MARKER_END.length)).replace(/\n{3,}$/, '\n');
+}
+
+function applyClaudeCodePatch(): { ok: boolean; alreadyPatched: boolean; reason?: string; version?: string } {
+  const cssPath = findClaudeCodeCssPath();
+  if (!cssPath) {
+    return { ok: false, alreadyPatched: false, reason: 'Claude Code extension not found.' };
+  }
+  try {
+    const ext = vscode.extensions.getExtension('anthropic.claude-code');
+    const version = ext?.packageJSON?.version as string | undefined;
+
+    const original = readCss(cssPath);
+    const backupPath = cssPath + '.orig';
+    if (!fs.existsSync(backupPath)) {
+      // Strip any pre-existing patch out of the backup, just in case.
+      fs.writeFileSync(backupPath, stripExistingPatch(original), 'utf8');
+    }
+
+    const cleaned = stripExistingPatch(original);
+    const wrapped = `${PATCH_MARKER_START}\n${PATCH_CSS.trim()}\n${PATCH_MARKER_END}\n`;
+    const next = cleaned.trimEnd() + '\n\n' + wrapped;
+
+    if (next === original) {
+      return { ok: true, alreadyPatched: true, version };
+    }
+
+    fs.writeFileSync(cssPath, next, 'utf8');
+    return { ok: true, alreadyPatched: false, version };
+  } catch (err: any) {
+    return { ok: false, alreadyPatched: false, reason: err?.message ?? String(err) };
+  }
+}
+
+function removeClaudeCodePatch(): { ok: boolean; reason?: string } {
+  const cssPath = findClaudeCodeCssPath();
+  if (!cssPath) {
+    return { ok: false, reason: 'Claude Code extension not found.' };
+  }
+  try {
+    const original = readCss(cssPath);
+    const cleaned = stripExistingPatch(original);
+    if (cleaned === original) {
+      return { ok: true };
+    }
+    fs.writeFileSync(cssPath, cleaned, 'utf8');
+    return { ok: true };
+  } catch (err: any) {
+    return { ok: false, reason: err?.message ?? String(err) };
+  }
+}
+
+async function offerReload(message: string) {
+  const choice = await vscode.window.showInformationMessage(message, 'Reload Window');
+  if (choice === 'Reload Window') {
+    vscode.commands.executeCommand('workbench.action.reloadWindow');
+  }
+}
+
+async function ensureClaudeCodePatched(context: vscode.ExtensionContext, opts: { silent: boolean }) {
+  const cfg = vscode.workspace.getConfiguration('claudeCodeRtl');
+  if (!cfg.get<boolean>('patchClaudeCode', true)) return;
+
+  const result = applyClaudeCodePatch();
+  if (!result.ok) {
+    if (!opts.silent) {
+      vscode.window.showWarningMessage(`Claude Code RTL: could not patch \u2014 ${result.reason}`);
+    }
+    return;
+  }
+
+  const versionKey = `claudeCodeRtl.lastPatchedVersion.${result.version ?? 'unknown'}`;
+  const previouslyNotified = context.globalState.get<boolean>(versionKey, false);
+
+  if (!result.alreadyPatched) {
+    if (!previouslyNotified) {
+      await offerReload(
+        `Claude Code RTL: RTL styles injected into Claude Code v${result.version ?? '?'}. ` +
+          `Reload the window so Arabic replies render right-to-left.`
+      );
+      await context.globalState.update(versionKey, true);
+    }
+  }
 }
 
 class MirrorPanel {
@@ -588,6 +745,36 @@ export function activate(context: vscode.ExtensionContext) {
 
     vscode.commands.registerCommand('claudeCodeRtl.clearMirror', () => {
       MirrorPanel.current?.clear();
+    }),
+
+    vscode.commands.registerCommand('claudeCodeRtl.patchClaudeCode', async () => {
+      const cfg = vscode.workspace.getConfiguration('claudeCodeRtl');
+      await cfg.update('patchClaudeCode', true, vscode.ConfigurationTarget.Global);
+      const r = applyClaudeCodePatch();
+      if (!r.ok) {
+        vscode.window.showWarningMessage(`Claude Code RTL: ${r.reason}`);
+        return;
+      }
+      if (r.alreadyPatched) {
+        vscode.window.showInformationMessage(
+          `Claude Code RTL: already applied to Claude Code v${r.version ?? '?'}.`
+        );
+      } else {
+        offerReload(
+          `Claude Code RTL: patched Claude Code v${r.version ?? '?'}. Reload window to apply.`
+        );
+      }
+    }),
+
+    vscode.commands.registerCommand('claudeCodeRtl.unpatchClaudeCode', async () => {
+      const cfg = vscode.workspace.getConfiguration('claudeCodeRtl');
+      await cfg.update('patchClaudeCode', false, vscode.ConfigurationTarget.Global);
+      const r = removeClaudeCodePatch();
+      if (!r.ok) {
+        vscode.window.showWarningMessage(`Claude Code RTL: ${r.reason}`);
+        return;
+      }
+      offerReload('Claude Code RTL: removed RTL patch from Claude Code. Reload window to apply.');
     })
   );
 
@@ -598,6 +785,9 @@ export function activate(context: vscode.ExtensionContext) {
   if (cfg.get<boolean>('openOnStartup', false)) {
     MirrorPanel.show(context);
   }
+
+  // Patch Claude Code's webview CSS on every activation so updates re-apply automatically.
+  ensureClaudeCodePatched(context, { silent: false }).catch(() => {});
 }
 
 export function deactivate() {
