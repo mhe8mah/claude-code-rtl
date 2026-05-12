@@ -1,0 +1,123 @@
+{
+  "name": "claude-code-rtl",
+  "displayName": "Claude Code RTL",
+  "description": "Read Claude Code (and any LTR webview) Arabic / Hebrew / Persian replies correctly — a clean RTL mirror panel with auto direction, theme-aware styling, and one-click text utilities.",
+  "version": "0.1.0",
+  "publisher": "mhe8mah",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization",
+    "Formatters"
+  ],
+  "keywords": [
+    "rtl",
+    "arabic",
+    "hebrew",
+    "persian",
+    "claude",
+    "claude code",
+    "bidi",
+    "right to left",
+    "عربي"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mhe8mah/claude-code-rtl.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mhe8mah/claude-code-rtl/issues"
+  },
+  "homepage": "https://github.com/mhe8mah/claude-code-rtl#readme",
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeCodeRtl.openMirror",
+        "title": "Claude Code RTL: Open Mirror Panel",
+        "category": "Claude Code RTL"
+      },
+      {
+        "command": "claudeCodeRtl.mirrorClipboard",
+        "title": "Claude Code RTL: Mirror Clipboard Now",
+        "category": "Claude Code RTL"
+      },
+      {
+        "command": "claudeCodeRtl.mirrorSelection",
+        "title": "Claude Code RTL: Mirror Editor Selection",
+        "category": "Claude Code RTL"
+      },
+      {
+        "command": "claudeCodeRtl.toggleAutoWatch",
+        "title": "Claude Code RTL: Toggle Clipboard Auto-Watch",
+        "category": "Claude Code RTL"
+      },
+      {
+        "command": "claudeCodeRtl.clearMirror",
+        "title": "Claude Code RTL: Clear Mirror Panel",
+        "category": "Claude Code RTL"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "claudeCodeRtl.mirrorSelection",
+          "when": "editorHasSelection",
+          "group": "1_modification@99"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Claude Code RTL",
+      "properties": {
+        "claudeCodeRtl.autoWatchClipboard": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically push new clipboard text into the RTL Mirror panel when it contains Arabic/Hebrew/Persian characters."
+        },
+        "claudeCodeRtl.watchIntervalMs": {
+          "type": "number",
+          "default": 1200,
+          "minimum": 300,
+          "maximum": 10000,
+          "description": "Polling interval (ms) used by the clipboard auto-watcher."
+        },
+        "claudeCodeRtl.fontFamily": {
+          "type": "string",
+          "default": "",
+          "description": "Override the mirror panel font. Leave empty to inherit the VS Code editor font."
+        },
+        "claudeCodeRtl.fontSize": {
+          "type": "number",
+          "default": 15,
+          "minimum": 10,
+          "maximum": 32,
+          "description": "Font size used inside the mirror panel."
+        },
+        "claudeCodeRtl.openOnStartup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open the RTL Mirror panel automatically when VS Code starts."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.4.0"
+  }
+}
