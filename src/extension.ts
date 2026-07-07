@@ -97,11 +97,96 @@ textarea,
 }
 `;
 
+const CODEX_EXTENSION_ID = 'openai.chatgpt';
+const CODEX_PATCH_MARKER_START = '/* === claude-code-rtl codex patch v1 START === */';
+const CODEX_PATCH_MARKER_END = '/* === claude-code-rtl codex patch v1 END === */';
+
+const CODEX_PATCH_CSS = `
+/* Codex renders mixed markdown, thinking logs, and tool output in mostly LTR
+ * containers. unicode-bidi: plaintext lets Arabic/Hebrew/Persian lines pick
+ * their own base direction without flipping code blocks. */
+:root .vscode-markdown,
+:root [class*="_markdownContent_"],
+:root .vscode-markdown p,
+:root .vscode-markdown li,
+:root .vscode-markdown blockquote,
+:root .vscode-markdown h1,
+:root .vscode-markdown h2,
+:root .vscode-markdown h3,
+:root .vscode-markdown h4,
+:root .vscode-markdown h5,
+:root .vscode-markdown h6,
+:root [class*="_markdownContent_"] p,
+:root [class*="_markdownContent_"] li,
+:root [class*="_markdownContent_"] blockquote,
+:root [class*="_markdownContent_"] h1,
+:root [class*="_markdownContent_"] h2,
+:root [class*="_markdownContent_"] h3,
+:root [class*="_markdownContent_"] h4,
+:root [class*="_markdownContent_"] h5,
+:root [class*="_markdownContent_"] h6,
+:root .whitespace-pre-wrap:not(pre):not(code),
+:root .whitespace-pre:not(pre):not(code),
+:root textarea,
+:root [contenteditable="true"],
+:root .ProseMirror {
+  unicode-bidi: plaintext !important;
+  text-align: start !important;
+  font-variant-ligatures: normal !important;
+  font-feature-settings: normal !important;
+}
+
+:root .vscode-markdown,
+:root [class*="_markdownContent_"],
+:root .whitespace-pre-wrap:not(pre):not(code),
+:root .whitespace-pre:not(pre):not(code) {
+  font-family: var(--vscode-font-family), "Noto Naskh Arabic", "Noto Sans Arabic", Tahoma, Arial, sans-serif !important;
+}
+
+:root .vscode-markdown ul,
+:root .vscode-markdown ol,
+:root [class*="_markdownContent_"] ul,
+:root [class*="_markdownContent_"] ol {
+  unicode-bidi: plaintext !important;
+}
+
+:root .vscode-markdown pre,
+:root .vscode-markdown pre *,
+:root .vscode-markdown code,
+:root [class*="_markdownContent_"] pre,
+:root [class*="_markdownContent_"] pre *,
+:root [class*="_markdownContent_"] code,
+:root pre[class*="language-"],
+:root code[class*="language-"] {
+  direction: ltr !important;
+  unicode-bidi: embed !important;
+  text-align: left !important;
+  font-family: var(--vscode-editor-font-family), ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace !important;
+}
+`;
+
 function findClaudeCodeCssPath(): string | undefined {
   const ext = vscode.extensions.getExtension('anthropic.claude-code');
   if (!ext) return undefined;
   const cssPath = path.join(ext.extensionPath, 'webview', 'index.css');
   return fs.existsSync(cssPath) ? cssPath : undefined;
+}
+
+function findCodexCssPaths(): string[] {
+  const ext = vscode.extensions.getExtension(CODEX_EXTENSION_ID);
+  if (!ext) return [];
+
+  const assetsPath = path.join(ext.extensionPath, 'webview', 'assets');
+  if (!fs.existsSync(assetsPath)) return [];
+
+  const cssNames = fs
+    .readdirSync(assetsPath)
+    .filter((name) => /^(app-main|index)(?:-[^.]+)?\.css$/.test(name))
+    .sort();
+
+  return cssNames
+    .map((name) => path.join(assetsPath, name))
+    .filter((cssPath) => fs.existsSync(cssPath));
 }
 
 function readCss(cssPath: string): string {
@@ -122,6 +207,10 @@ function stripExistingPatch(css: string): string {
     out = stripBlockBetween(out, s, e);
   }
   return out;
+}
+
+function stripCodexPatch(css: string): string {
+  return stripBlockBetween(css, CODEX_PATCH_MARKER_START, CODEX_PATCH_MARKER_END);
 }
 
 function applyClaudeCodePatch(): { ok: boolean; alreadyPatched: boolean; reason?: string; version?: string } {
@@ -173,6 +262,84 @@ function removeClaudeCodePatch(): { ok: boolean; reason?: string } {
   }
 }
 
+function applyCodexPatch(): {
+  ok: boolean;
+  alreadyPatched: boolean;
+  reason?: string;
+  version?: string;
+  filesPatched?: number;
+} {
+  const ext = vscode.extensions.getExtension(CODEX_EXTENSION_ID);
+  if (!ext) {
+    return { ok: false, alreadyPatched: false, reason: 'OpenAI Codex extension not found.' };
+  }
+
+  const cssPaths = findCodexCssPaths();
+  if (cssPaths.length === 0) {
+    return {
+      ok: false,
+      alreadyPatched: false,
+      reason: 'OpenAI Codex webview CSS not found.',
+      version: ext.packageJSON?.version as string | undefined,
+    };
+  }
+
+  try {
+    let filesPatched = 0;
+    for (const cssPath of cssPaths) {
+      const original = readCss(cssPath);
+      const backupPath = cssPath + '.orig';
+      if (!fs.existsSync(backupPath)) {
+        fs.writeFileSync(backupPath, stripCodexPatch(original), 'utf8');
+      }
+
+      const cleaned = stripCodexPatch(original);
+      const wrapped = `${CODEX_PATCH_MARKER_START}\n${CODEX_PATCH_CSS.trim()}\n${CODEX_PATCH_MARKER_END}\n`;
+      const next = cleaned.trimEnd() + '\n\n' + wrapped;
+      if (next !== original) {
+        fs.writeFileSync(cssPath, next, 'utf8');
+        filesPatched++;
+      }
+    }
+
+    return {
+      ok: true,
+      alreadyPatched: filesPatched === 0,
+      version: ext.packageJSON?.version as string | undefined,
+      filesPatched,
+    };
+  } catch (err: any) {
+    return { ok: false, alreadyPatched: false, reason: err?.message ?? String(err) };
+  }
+}
+
+function removeCodexPatch(): { ok: boolean; reason?: string; filesChanged?: number } {
+  const ext = vscode.extensions.getExtension(CODEX_EXTENSION_ID);
+  if (!ext) {
+    return { ok: false, reason: 'OpenAI Codex extension not found.' };
+  }
+
+  const cssPaths = findCodexCssPaths();
+  if (cssPaths.length === 0) {
+    return { ok: false, reason: 'OpenAI Codex webview CSS not found.' };
+  }
+
+  try {
+    let filesChanged = 0;
+    for (const cssPath of cssPaths) {
+      const original = readCss(cssPath);
+      const cleaned = stripCodexPatch(original);
+      if (cleaned !== original) {
+        fs.writeFileSync(cssPath, cleaned, 'utf8');
+        filesChanged++;
+      }
+    }
+    return { ok: true, filesChanged };
+  } catch (err: any) {
+    return { ok: false, reason: err?.message ?? String(err) };
+  }
+}
+
 async function offerReload(message: string) {
   const choice = await vscode.window.showInformationMessage(message, 'Reload Window');
   if (choice === 'Reload Window') {
@@ -198,6 +365,27 @@ async function ensureClaudeCodePatched(context: vscode.ExtensionContext, opts: {
     await offerReload(
       `Claude Code RTL: RTL styles injected into Claude Code v${result.version ?? '?'}. ` +
         `Reload the window so Arabic replies render right-to-left.`
+    );
+  }
+}
+
+async function ensureCodexPatched(context: vscode.ExtensionContext, opts: { silent: boolean }) {
+  const cfg = vscode.workspace.getConfiguration('claudeCodeRtl');
+  if (!cfg.get<boolean>('patchCodex', true)) return;
+
+  const result = applyCodexPatch();
+  if (!result.ok) {
+    if (!opts.silent && result.reason !== 'OpenAI Codex extension not found.') {
+      vscode.window.showWarningMessage(`Claude Code RTL: could not patch Codex - ${result.reason}`);
+    }
+    return;
+  }
+
+  if (!result.alreadyPatched) {
+    await offerReload(
+      `Claude Code RTL: RTL styles injected into Codex v${result.version ?? '?'} ` +
+        `(${result.filesPatched ?? 0} CSS file${result.filesPatched === 1 ? '' : 's'}). ` +
+        `Reload the window so Arabic text renders correctly.`
     );
   }
 }
@@ -814,6 +1002,37 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       offerReload('Claude Code RTL: removed RTL patch from Claude Code. Reload window to apply.');
+    }),
+
+    vscode.commands.registerCommand('claudeCodeRtl.patchCodex', async () => {
+      const cfg = vscode.workspace.getConfiguration('claudeCodeRtl');
+      await cfg.update('patchCodex', true, vscode.ConfigurationTarget.Global);
+      const r = applyCodexPatch();
+      if (!r.ok) {
+        vscode.window.showWarningMessage(`Claude Code RTL: ${r.reason}`);
+        return;
+      }
+      if (r.alreadyPatched) {
+        vscode.window.showInformationMessage(
+          `Claude Code RTL: already applied to Codex v${r.version ?? '?'}.`
+        );
+      } else {
+        offerReload(
+          `Claude Code RTL: patched Codex v${r.version ?? '?'} ` +
+            `(${r.filesPatched ?? 0} CSS file${r.filesPatched === 1 ? '' : 's'}). Reload window to apply.`
+        );
+      }
+    }),
+
+    vscode.commands.registerCommand('claudeCodeRtl.unpatchCodex', async () => {
+      const cfg = vscode.workspace.getConfiguration('claudeCodeRtl');
+      await cfg.update('patchCodex', false, vscode.ConfigurationTarget.Global);
+      const r = removeCodexPatch();
+      if (!r.ok) {
+        vscode.window.showWarningMessage(`Claude Code RTL: ${r.reason}`);
+        return;
+      }
+      offerReload('Claude Code RTL: removed RTL patch from Codex. Reload window to apply.');
     })
   );
 
@@ -827,6 +1046,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Patch Claude Code's webview CSS on every activation so updates re-apply automatically.
   ensureClaudeCodePatched(context, { silent: false }).catch(() => {});
+  ensureCodexPatched(context, { silent: false }).catch(() => {});
 }
 
 export function deactivate() {

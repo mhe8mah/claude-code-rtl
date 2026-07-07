@@ -2,7 +2,7 @@
   "name": "claude-code-rtl",
   "displayName": "Claude Code RTL",
   "description": "Read Claude Code (and any LTR webview) Arabic / Hebrew / Persian replies correctly — a clean RTL mirror panel with auto direction, theme-aware styling, and one-click text utilities.",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "publisher": "mhe8mah",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -73,6 +73,16 @@
         "command": "claudeCodeRtl.unpatchClaudeCode",
         "title": "Claude Code RTL: Disable In-Chat RTL (remove patch)",
         "category": "Claude Code RTL"
+      },
+      {
+        "command": "claudeCodeRtl.patchCodex",
+        "title": "Claude Code RTL: Enable Codex/OpenAI RTL (patch Codex)",
+        "category": "Claude Code RTL"
+      },
+      {
+        "command": "claudeCodeRtl.unpatchCodex",
+        "title": "Claude Code RTL: Disable Codex/OpenAI RTL (remove patch)",
+        "category": "Claude Code RTL"
       }
     ],
     "menus": {
@@ -120,6 +130,11 @@
           "type": "boolean",
           "default": true,
           "description": "Inject right-to-left CSS into the installed Claude Code extension so its chat panel renders Arabic / Hebrew / Persian replies natively. The patch is scoped to a marked block and can be removed at any time via the 'Disable In-Chat RTL' command."
+        },
+        "claudeCodeRtl.patchCodex": {
+          "type": "boolean",
+          "default": true,
+          "description": "Inject bidirectional text CSS into the installed OpenAI Codex extension so Arabic / Hebrew / Persian replies, thinking logs, and tool output render correctly. The patch is scoped to a marked block and can be removed at any time."
         }
       }
     }
